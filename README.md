@@ -7,8 +7,8 @@ Write your math in an embedded Desmos calculator and get an instant mark after e
 - red ✗ really wrong
 - gray ? can't tell (notation, unclear line, or the AI wasn't sure)
 
-Also: word-problem setup scoring, a tutor chat, and "add more questions like this".
+Features: word-problem setup scoring, a tutor chat, "more like this" practice questions, paste a wall of problems or a PDF and step through them ("Problem 3 / 12"), tables built in Desmos, automatic move to the next problem after a saved final answer, a "My answers" list with export (copy, Word, PDF, Google Docs), an AI answer key, and AI practice tests made from an old exam.
 
-Bring your own Gemini API key (free at https://aistudio.google.com/apikey). The key is stored only in your browser and sent straight to Google. Without a key the app runs in test mode with fake marks.
+Bring your own AI key: Gemini, Claude, ChatGPT (OpenAI), OpenRouter, or any OpenAI-compatible server such as a local Ollama. Pick any model in Settings. Your key is stored only in your browser (it stays after refreshes) and is sent straight to the provider you chose. Without a key the app runs in test mode with fake marks.
 
 This is a static site, so it can be served from GitHub Pages as-is.

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Math Check</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <header>
@@ -30,11 +30,13 @@
   <div class="row">
     <label class="file-btn" for="pdfInput">PDF</label>
     <input id="pdfInput" type="file" accept="application/pdf">
+    <button id="pasteBtn" type="button">Paste from clipboard</button>
     <button id="splitBtn" type="button" class="primary">Break into problems</button>
     <button id="setProblem" type="button">One problem</button>
     <span id="splitStatus" class="muted"></span>
   </div>
   <div class="row"><span id="prepStatus" class="muted"></span></div>
+  <p class="muted tiny">From a WebAssign page: drag <a id="bookmarklet" href="#">Copy page for Math Check</a> to your bookmarks bar once. On the WebAssign page click that bookmark, then press <strong>Paste from clipboard</strong> here.</p>
   <div id="problemView" class="problem-view"></div>
 </section>
 
@@ -45,8 +47,10 @@
     <nav class="tabs" role="tablist">
       <button type="button" role="tab" data-tab="check" aria-selected="true">Checks</button>
       <button type="button" role="tab" data-tab="chat" aria-selected="false">Chat</button>
-      <button type="button" role="tab" data-tab="more" aria-selected="false">More questions</button>
-      <button type="button" role="tab" data-tab="key" aria-selected="false">Answer key</button>
+      <button type="button" role="tab" data-tab="ans" aria-selected="false">My answers</button>
+      <button type="button" role="tab" data-tab="key" aria-selected="false">AI key</button>
+      <button type="button" role="tab" data-tab="more" aria-selected="false">More like this</button>
+      <button type="button" role="tab" data-tab="prac" aria-selected="false">Practice test</button>
     </nav>
 
     <div class="pane" id="pane-check">
@@ -56,7 +60,7 @@
       <div class="legend" aria-label="Key to the check marks">
         <h2>Key</h2>
         <ul>
-          <li><span class="mark green">✓</span> Right</li>
+          <li><span class="mark green">✓</span> Right (the ☆ button saves that line as your answer)</li>
           <li><span class="mark yellow">✓</span> Minor slip (e.g. a 2 instead of a 3); the idea is right</li>
           <li><span class="mark red">✗</span> Really wrong</li>
           <li><span class="mark gray">?</span> Can't tell (notation, unclear line, or the AI wasn't sure). Click it to re-check</li>
@@ -70,6 +74,22 @@
         <textarea id="chatInput" rows="2" placeholder="Ask about the step you're stuck on..."></textarea>
         <button type="submit" class="primary">Send</button>
       </form>
+    </div>
+
+    <div class="pane" id="pane-ans" hidden>
+      <p class="muted">Your own final answers, saved when a green line is the complete answer (or when you click ☆ on a green line). They stay here after the app moves on.</p>
+      <label class="check-row"><input id="autoNext" type="checkbox" checked> Move to the next problem automatically after a saved answer</label>
+      <ul id="ansList" class="more-list"></ul>
+      <div class="export-box">
+        <h2>Export</h2>
+        <div class="row">
+          <button id="expCopy" type="button">Copy all</button>
+          <button id="expWord" type="button">Word (.doc)</button>
+          <button id="expPdf" type="button">PDF (print)</button>
+          <button id="expGoogle" type="button">Google Docs (sign in)</button>
+        </div>
+        <p id="expStatus" class="muted"></p>
+      </div>
     </div>
 
     <div class="pane" id="pane-key" hidden>
@@ -91,24 +111,51 @@
       <p id="moreStatus" class="muted"></p>
       <ul id="moreList" class="more-list"></ul>
     </div>
+
+    <div class="pane" id="pane-prac" hidden>
+      <p class="muted">Paste an old exam, midterm or worksheet (or choose its PDF). The AI writes a brand-new test with one new question for each original, same type and difficulty, and loads it as your problem set.</p>
+      <textarea id="pracInput" rows="5" placeholder="Paste the exam text here..."></textarea>
+      <div class="row">
+        <input id="pracPdf" type="file" accept="application/pdf">
+        <button id="pracBtn" type="button" class="primary">Make practice test</button>
+      </div>
+      <p id="pracStatus" class="muted"></p>
+    </div>
   </aside>
 </main>
+
+<div id="toast" class="toast" hidden>
+  <span id="toastText"></span>
+  <button id="toastA" type="button"></button>
+  <button id="toastB" type="button"></button>
+</div>
 
 <dialog id="settings">
   <form method="dialog" id="settingsForm">
     <h2>Settings</h2>
-    <p class="muted">Your key stays in this browser only. It is sent straight to Google when a check runs, never to anyone else.</p>
-    <label for="keyInput">Gemini API key</label>
+    <p class="muted">Pick any AI company and any model. Your key stays in this browser and goes only to the company you pick.</p>
+    <label for="providerSel">AI provider</label>
+    <select id="providerSel"></select>
+    <div id="baseRow" hidden>
+      <label for="baseInput">Server address</label>
+      <input id="baseInput" type="text" placeholder="http://localhost:11434/v1">
+    </div>
+    <label for="keyInput" id="keyLabel">API key</label>
     <input id="keyInput" type="password" autocomplete="off" placeholder="paste your key">
-    <p class="muted"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key</a> (about a minute, Google account needed).</p>
-    <label for="modelInput">Model for setting up problems, chat and new questions</label>
-    <input id="modelInput" type="text" placeholder="gemini-3.8-flash">
-    <label for="checkModelInput">Model for the per-line checks (faster is better)</label>
-    <input id="checkModelInput" type="text" placeholder="gemini-3.8-flash">
+    <p class="muted"><a id="keyLink" href="#" target="_blank" rel="noopener">Get a key</a></p>
+    <p id="keyHint" class="muted"></p>
+    <label for="modelInput">Model for setting up problems, chat, answer keys and new questions</label>
+    <input id="modelInput" type="text" list="modelList" placeholder="click Load models, or type one">
+    <label for="checkModelInput">Model for the per-line checks (a faster one is better)</label>
+    <input id="checkModelInput" type="text" list="modelList" placeholder="click Load models, or type one">
+    <datalist id="modelList"></datalist>
     <div class="row">
+      <button id="loadModels" type="button">Load models</button>
       <button id="testKey" type="button">Test key</button>
       <span id="testResult" class="muted"></span>
     </div>
+    <label for="gcidInput">Google OAuth client ID (optional, only for exporting to Google Docs)</label>
+    <input id="gcidInput" type="text" autocomplete="off" placeholder="1234-abc.apps.googleusercontent.com">
     <div class="row end">
       <button value="cancel" type="submit">Close</button>
       <button id="saveSettings" value="save" type="submit" class="primary">Save</button>
@@ -120,7 +167,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.1/math.min.js"></script>
 <script src="https://www.desmos.com/api/v1.11/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
-<script src="mathcheck.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="mathcheck.js?v=10"></script>
+<script src="providers.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

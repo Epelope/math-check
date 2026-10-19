@@ -140,3 +140,20 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 
 .file-btn { margin: 0; font-weight: 400; }
 #pdfInput { max-width: 220px; font-size: 13px; }
+
+/* v10 */
+.tabs { flex-wrap: wrap; }
+.tabs button { flex: 1 1 auto; padding: 8px 8px; font-size: 13px; }
+.tiny { font-size: 12px; margin: 6px 0 0; }
+.check-row { display: flex; align-items: center; gap: 8px; font-weight: 400; margin: 10px 0; }
+.check-row input { width: auto; }
+.export-box { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 8px; }
+.export-box h2 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ans-tex { margin: 6px 0; overflow-x: auto; }
+.star { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; cursor: pointer; color: var(--muted); }
+.star.on { color: var(--yellow); border-color: var(--yellow); }
+.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px); background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.toast[hidden] { display: none; }
+.toast button:empty { display: none; }
+
+a { color: var(--accent); }
