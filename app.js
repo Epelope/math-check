@@ -7,13 +7,33 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked: still works this session */ } },
   };
-  const cfg = Object.assign({ key: '', model: 'gemini-2.5-flash', checkModel: 'gemini-2.5-flash' }, store.get('mc.cfg', {}));
+  const DEFAULT_MODEL = 'gemini-3.8-flash';
+  const cfg = Object.assign({ key: '', model: DEFAULT_MODEL, checkModel: DEFAULT_MODEL }, store.get('mc.cfg', {}));
+  // models Google has retired for new accounts: move saved settings to the current default
+  ['model', 'checkModel'].forEach((k) => { if (/^gemini-(1\.|2\.0|2\.5)/.test(cfg[k])) cfg[k] = DEFAULT_MODEL; });
   const isMock = () => !cfg.key;
 
   // ---------- Gemini ----------
   const SYS_BASE = 'You are a precise college differential-equations (Math 207) assistant. Be mathematically careful: verify by differentiating or substituting when unsure.';
 
-  async function gemini({ model, system, prompt, history, json = true, thinking = true }, attempt = 0) {
+  // Ask Google which models this key can use and pick the newest plain "flash" model.
+  async function pickModel() {
+    try {
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': cfg.key } });
+      const data = await res.json();
+      const found = (data.models || [])
+        .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map((m) => m.name.replace(/^models\//, ''))
+        .map((n) => ({ n, v: /^gemini-(\d+(?:\.\d+)?)-flash$/.exec(n) }))
+        .filter((x) => x.v)
+        .sort((a, b) => parseFloat(b.v[1]) - parseFloat(a.v[1]));
+      return found.length ? found[0].n : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function gemini({ model, system, prompt, history, json = true, thinking = true }, attempt = {}) {
     const contents = history || [{ role: 'user', parts: [{ text: prompt }] }];
     const generationConfig = { temperature: 0.2 };
     if (json) generationConfig.responseMimeType = 'application/json';
@@ -23,12 +43,25 @@
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
       body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig }),
     });
-    if (res.status === 429 && attempt < 1) {
+    if (res.status === 429 && !attempt.retried) {
       await new Promise((r) => setTimeout(r, 4000));
-      return gemini({ model, system, prompt, history, json, thinking }, attempt + 1);
+      return gemini({ model, system, prompt, history, json, thinking }, { ...attempt, retried: true });
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((data.error && data.error.message) || 'Gemini error ' + res.status);
+    if (!res.ok) {
+      const msg = (data.error && data.error.message) || 'Gemini error ' + res.status;
+      // model retired or unknown: ask Google which models this key can use, switch, retry once
+      if (!attempt.swapped && /no longer available|no longer supported|not found|not supported/i.test(msg)) {
+        const best = await pickModel();
+        if (best && best !== model) {
+          if (cfg.model === model) cfg.model = best;
+          if (cfg.checkModel === model) cfg.checkModel = best;
+          store.set('mc.cfg', cfg);
+          return gemini({ model: best, system, prompt, history, json, thinking }, { ...attempt, swapped: true });
+        }
+      }
+      throw new Error(msg);
+    }
     const text = ((data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || []).map((p) => p.text || '').join('');
     if (!json) return text;
     return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
@@ -414,7 +447,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     $('#settingsForm').addEventListener('submit', (e) => {
       if (e.submitter && e.submitter.value === 'save') {
         cfg.key = $('#keyInput').value.trim();
-        cfg.model = $('#modelInput').value.trim() || 'gemini-2.5-flash';
+        cfg.model = $('#modelInput').value.trim() || DEFAULT_MODEL;
         cfg.checkModel = $('#checkModelInput').value.trim() || cfg.model;
         store.set('mc.cfg', cfg);
         updateBanner();
