@@ -44,7 +44,7 @@
   let lastModelUsed = '';
 
   // ---------- the AI ----------
-    const SYS_BASE = 'You are an expert, careful math tutor and checker for all college-level math and math-heavy courses: arithmetic and algebra, precalculus, calculus, linear algebra, differential equations, probability and statistics, discrete math, and the math in physics and engineering (e.g. statics, circuits). FIRST work out what kind of problem this is, which course level it is from, and what method(s) a student at that level is expected to use; then tailor everything to that. The problem statement is the source of truth: use exactly what it says. Never assume it is a different type of problem, and never add terms, derivatives, conditions or numbers that are not written. If the problem as written does not make sense or is ambiguous, say so plainly instead of guessing. Double-check every arithmetic and algebra step before you state it, and verify answers by substituting back or differentiating when that is possible; if you are not sure, say you are not sure. HOW THIS APP WORKS (you cannot see the screen, so rely on this): the student works inside a web app called Math Check. The problem is shown at the top. Below it is an embedded Desmos graphing calculator where the student types each step of their work as its own math line; you receive those lines as Desmos LaTeX, in order, never as pictures. The app puts a mark next to each line: green = right, yellow = minor slip, red = really wrong, gray = can\'t tell. If a problem has a table to fill in, the app builds that table in Desmos for the student (numbers only; Yes/No answers are entered as 1 = Yes and 0 = No). Desmos has no text-answer boxes, no symbolic algebra and no indefinite integrals, so students write derivatives, integrals and words loosely as math lines (for example dy/dx, y\' or an integral sign without limits) and write answers as an equation or a number on their own line. Judge the mathematics and the intent, never Desmos formatting. Do not mention buttons, tabs or features that do not exist in this app, and do not tell the student to do something on paper or in a place the app does not have.';
+    const SYS_BASE = 'You are an expert, careful math tutor and checker for all college-level math and math-heavy courses: arithmetic and algebra, precalculus, calculus, linear algebra, differential equations, probability and statistics, discrete math, and the math in physics and engineering (e.g. statics, circuits). FIRST work out what kind of problem this is, which course level it is from, and what method(s) a student at that level is expected to use; then tailor everything to that. The problem statement is the source of truth: use exactly what it says. Never assume it is a different type of problem, and never add terms, derivatives, conditions or numbers that are not written. If the problem as written does not make sense or is ambiguous, say so plainly instead of guessing. Double-check every arithmetic and algebra step before you state it, and verify answers by substituting back or differentiating when that is possible; if you are not sure, say you are not sure. HOW THIS APP WORKS (you cannot see the screen, so rely on this): the student works inside a web app called Math Check. The problem is shown at the top. Below it is an embedded Desmos graphing calculator where the student types each step of their work as its own math line; you receive those lines as Desmos LaTeX, in order, never as pictures. The app puts a mark next to each line: green = right, yellow = minor slip, red = really wrong, gray = can\'t tell. If a problem has a table to fill in, the app builds that table in Desmos for the student (numbers only). Yes/No or True/False grids are built as editable text rows in Desmos, one row per item; the student replaces each blank ___ with Yes or No, and you receive each row as plain text such as: (i) y-prime plus xy equals x squared: Separable Yes, Linear Yes. Desmos has no text-answer boxes, no symbolic algebra and no indefinite integrals, so students write derivatives, integrals and words loosely as math lines (for example dy/dx, y\' or an integral sign without limits) and write answers as an equation or a number on their own line. Judge the mathematics and the intent, never Desmos formatting. Do not mention buttons, tabs or features that do not exist in this app, and do not tell the student to do something on paper or in a place the app does not have.';
 
   // Gemini only: when one model is overloaded or retired, try the others in turn and remember what worked.
   const FALLBACKS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
@@ -147,6 +147,7 @@
     keys: store.get('mc.keys', {}),
     keyOpen: {},
     answers: store.get('mc.answers', {}),
+    grid: null, // the Yes/No grid built in Desmos for the current problem
   };
 
   // ---------- math rendering ----------
@@ -190,11 +191,30 @@
     window.addEventListener('resize', () => calc.resize());
   }
 
+  // One grid row as plain text, e.g. "(i) y' + xy = x^2: Separable Yes, Linear Yes" (empty until a cell is answered).
+  function rowSummary(text, id) {
+    const g = state.grid;
+    const row = g && g.rows.find((r) => r.id === id);
+    if (!row) return '';
+    const parts = [];
+    g.columns.forEach((c) => {
+      const m = new RegExp(c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:\\s*(yes|no|true|false)\\b', 'i').exec(text || '');
+      if (m) parts.push(c + ' ' + m[1][0].toUpperCase() + m[1].slice(1).toLowerCase());
+    });
+    return parts.length ? row.label + ': ' + parts.join(', ') : '';
+  }
+
   function currentLines() {
     if (!calc) return [];
-    return calc.getExpressions()
-      .filter((e) => e.type === 'expression' && e.latex && e.latex.trim())
-      .map((e) => ({ id: e.id, latex: e.latex.trim() }));
+    const out = [];
+    calc.getExpressions().forEach((e) => {
+      if (e.type === 'expression' && e.latex && e.latex.trim()) out.push({ id: e.id, latex: e.latex.trim() });
+      else if (e.type === 'text' && String(e.id || '').startsWith('mc-row-')) {
+        const sum = rowSummary(e.text, e.id);
+        if (sum) out.push({ id: e.id, latex: sum, text: true });
+      }
+    });
+    return out;
   }
 
   // ---------- per-line checks ----------
@@ -242,7 +262,7 @@
       const previous = lines.slice(0, idx).map((p) => ({ latex: p.latex, status: (state.lines[p.id] || {}).status || 'unknown' }));
       let result;
       try {
-        result = await judge(line.latex, previous);
+        result = await judge(line.latex, previous, line.text);
       } catch (e) {
         result = { status: 'error', matched: [] };
         console.warn('check failed:', e.message);
@@ -264,12 +284,12 @@
     return !!m && !m[2].replace(/\\[A-Za-z]+/g, '').includes(m[1]);
   }
 
-  async function judge(latex, previous) {
+  async function judge(latex, previous, isText) {
     // 1. unfinished typing or broken notation: never red, just gray
-    if (!balanced(latex)) return { status: 'unsure', matched: [] };
+    if (!isText && !balanced(latex)) return { status: 'unsure', matched: [] };
     // 2. same as the previous line algebraically: it gets that line's mark
     const prev = previous[previous.length - 1];
-    if (prev && !looksFinal(latex) && ['right', 'slip', 'wrong'].includes(prev.status) && window.MathCheck && MathCheck.equivalent(prev.latex, latex) === true) {
+    if (prev && !isText && !looksFinal(latex) && ['right', 'slip', 'wrong'].includes(prev.status) && window.MathCheck && MathCheck.equivalent(prev.latex, latex) === true) {
       return { status: prev.status, matched: [] };
     }
     // 3. test mode
@@ -288,7 +308,7 @@
       model: 'check',
       thinking: false,
       system: SYS_BASE + ' You judge ONE new line of a student\'s written work in Desmos. Skipped steps are fine if the line is a true, valid consequence of earlier correct lines or a correct setup. Do not require a specific method.',
-      prompt: `Problem:\n${state.problem}\n\nReference rubric (may be incomplete; a correct but different method is still right):\n${JSON.stringify(state.rubric || {})}\n\nStudent's earlier lines with marks:\n${prevText}\n\nNEW LINE (LaTeX from Desmos):\n${latex}\n\nChoose exactly one verdict:\n- "right": the line is correct and valid.\n- "slip": the method and idea are right but there is a small human error, like a wrong digit, a dropped sign or a typo (e.g. 2 instead of 3). One tiny fix would make it right.\n- "wrong": really incorrect (wrong method, wrong setup, a real algebra or calculus error beyond a typo).\n- "unsure": you cannot tell, or the line is mostly Desmos syntax or notation trouble (e.g. derivative or other notation typed as plain letters, missing parentheses, stray symbols). NEVER say "wrong" because of Desmos notation.\n\nAlso set "isFinal" to true ONLY if this line is correct AND is the complete final answer to the whole problem (every part answered); otherwise false.\n\nReturn JSON: {"verdict":"right"|"slip"|"wrong"|"unsure","matched":[ids of rubric firstSteps this line correctly establishes, else []],"isFinal":true|false}. Write every LaTeX backslash in the JSON as a double backslash.`,
+      prompt: `Problem:\n${state.problem}\n\nReference rubric (may be incomplete; a correct but different method is still right):\n${JSON.stringify(state.rubric || {})}\n\nStudent's earlier lines with marks:\n${prevText}\n\nNEW LINE (LaTeX from Desmos):\n${latex}${isText ? '\n\nThis NEW LINE is one row of a Yes/No grid the student is filling in (plain text, not LaTeX): judge each answered cell against the correct answer for that row\'s item. \"right\" only if every answered cell is correct, \"wrong\" if any answered cell is wrong; blank cells are not errors.' : ''}\n\nChoose exactly one verdict:\n- "right": the line is correct and valid.\n- "slip": the method and idea are right but there is a small human error, like a wrong digit, a dropped sign or a typo (e.g. 2 instead of 3). One tiny fix would make it right.\n- "wrong": really incorrect (wrong method, wrong setup, a real algebra or calculus error beyond a typo).\n- "unsure": you cannot tell, or the line is mostly Desmos syntax or notation trouble (e.g. derivative or other notation typed as plain letters, missing parentheses, stray symbols). NEVER say "wrong" because of Desmos notation.\n\nAlso set "isFinal" to true ONLY if this line is correct AND is the complete final answer to the whole problem (every part answered); otherwise false.\n\nReturn JSON: {"verdict":"right"|"slip"|"wrong"|"unsure","matched":[ids of rubric firstSteps this line correctly establishes, else []],"isFinal":true|false}. Write every LaTeX backslash in the JSON as a double backslash.`,
     });
     const status = ['right', 'slip', 'wrong', 'unsure'].includes(out.verdict) ? out.verdict : 'unsure';
     return { status, matched: Array.isArray(out.matched) ? out.matched : [], isFinal: out.isFinal === true };
@@ -329,7 +349,8 @@
       }
       const tex = document.createElement('span');
       tex.className = 'tex';
-      try { katex.render(l.latex, tex, { throwOnError: false, errorColor: '#8a93a3' }); } catch (e) { tex.textContent = l.latex; }
+      if (l.text) tex.textContent = l.latex;
+      else { try { katex.render(l.latex, tex, { throwOnError: false, errorColor: '#8a93a3' }); } catch (e) { tex.textContent = l.latex; } }
       li.append(mark, tex);
       if (st.status === 'right') {
         const star = document.createElement('button');
@@ -375,8 +396,9 @@
  "firstSteps": [ {"id":"s1","description":"one setup item the student must establish","acceptable":["LaTeX of the correct equation and equivalent forms"]} ],
  "solutionSteps": ["each key step of a full correct solution, in LaTeX"],
  "finalAnswer": "LaTeX or short text",
- "table": null}
-If the problem asks the student to fill in or complete a table (e.g. Euler's method values, a Yes/No classification grid), set "table" to {"note":"how to read it, e.g. 1 = Yes, 0 = No","columns":[{"name":"t","values":["1","1.25","1.5","1.75","2"]},{"name":"y","values":["1","","","",""]}]} using the given numbers as strings and "" for every cell the student must fill. Every column needs the same number of values. A column name is a single letter or a short label. For Yes/No grids use 1 for Yes and 0 for No, make the first column the row numbers 1..n, and name the other columns after what they ask. NEVER put answers into the blank cells. Otherwise "table" must be null.
+ "table": null,
+ "grid": null}
+If the problem asks the student to fill in or complete a table (e.g. Euler's method values, a Yes/No classification grid), set "table" to {"note":"how to read it, e.g. 1 = Yes, 0 = No","columns":[{"name":"t","values":["1","1.25","1.5","1.75","2"]},{"name":"y","values":["1","","","",""]}]} using the given numbers as strings and "" for every cell the student must fill. Every column needs the same number of values. A column name is a single letter or a short label. NEVER put answers into the blank cells. Otherwise "table" must be null. If the problem asks for Yes/No or True/False answers in a grid or list (for example classifying each equation as separable, linear or exact), set "grid" to {"note":"how to fill it in","columns":["Separable","Linear","Exact"],"rows":[{"label":"(i) y' + xy = x^2"},{"label":"(ii) y' = x^2 + y^2"}]} with one row per item written exactly as the problem states it in plain text (no LaTeX commands), and NEVER include the answers. Otherwise "grid" must be null.
 Rules: firstSteps is non-empty ONLY for word/modeling problems where the student must write equations from the story (list EVERY separate setup equation or quantity needed, e.g. each equilibrium equation or each rate equation; include time/unit conversions if asked). For pure math problems use [].`;
 
   async function makeRubric(problem) {
@@ -417,10 +439,28 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     calc.setState(st);
   }
 
+  // Yes/No grids: one editable Desmos text row per item; the student types Yes or No after each colon.
+  function buildGrid(g) {
+    if (!calc || !g || !Array.isArray(g.columns) || !g.columns.length || !Array.isArray(g.rows) || !g.rows.length) return;
+    const cols = g.columns.slice(0, 6).map((c) => String(c).trim()).filter(Boolean);
+    const rows = g.rows.slice(0, 30).map((r, i) => ({ id: 'mc-row-' + (i + 1), label: String(typeof r === 'string' ? r : (r && r.label) || '').trim() }));
+    if (!cols.length) return;
+    state.grid = { columns: cols, rows };
+    const st = calc.getState();
+    st.expressions.list = st.expressions.list.filter((e) => !String(e.id || '').startsWith('mc-row-') && e.id !== 'mc-gridnote');
+    const blanks = cols.map((c) => c + ': ___').join('     ');
+    st.expressions.list.unshift(
+      { type: 'text', id: 'mc-gridnote', text: (g.note ? String(g.note).replace(/\s+$/, '') + ' ' : '') + 'Click a row and replace each ___ with Yes or No.' },
+      ...rows.map((r) => ({ type: 'text', id: r.id, text: r.label + '   -   ' + blanks }))
+    );
+    calc.setState(st);
+  }
+
   async function setProblem(text, keepWork) {
     state.problem = text.trim();
     store.set('mc.problem', state.problem);
     state.rubric = null;
+    state.grid = null;
     if (!keepWork) {
       state.lines = {};
       state.chat = [];
@@ -437,6 +477,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       if (state.rubricPromise !== mine) return;
       state.rubric = r;
       try { buildTable(r.table); } catch (e) { console.warn('table failed:', e.message); }
+      try { buildGrid(r.grid); } catch (e) { console.warn('grid failed:', e.message); }
       setPrep(isMock() ? 'Ready (test mode)' : 'Ready' + ((r.firstSteps || []).length ? ': word problem, ' + r.firstSteps.length + ' setup steps' : ''));
       renderSetup();
     } catch (e) {
