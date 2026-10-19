@@ -7,64 +7,92 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked: still works this session */ } },
   };
-  const DEFAULT_MODEL = 'gemini-3.8-flash';
-  const cfg = Object.assign({ key: '', model: DEFAULT_MODEL, checkModel: DEFAULT_MODEL }, store.get('mc.cfg', {}));
+  const DEFAULT_MODEL = 'gemini-3.8-flash'; // setup, chat, new questions
+  const DEFAULT_CHECK = 'gemini-3.5-flash-lite'; // per-line checks: lighter model = faster and less often overloaded
+  const cfg = Object.assign({ key: '', model: DEFAULT_MODEL, checkModel: DEFAULT_CHECK }, store.get('mc.cfg', {}));
   // models Google has retired for new accounts: move saved settings to the current default
-  ['model', 'checkModel'].forEach((k) => { if (/^gemini-(1\.|2\.0|2\.5)/.test(cfg[k])) cfg[k] = DEFAULT_MODEL; });
+  ['model', 'checkModel'].forEach((k) => { if (/^gemini-(1\.|2\.0|2\.5)/.test(cfg[k])) cfg[k] = k === 'model' ? DEFAULT_MODEL : DEFAULT_CHECK; });
+  if (cfg.v !== 4) { cfg.checkModel = DEFAULT_CHECK; cfg.v = 4; store.set('mc.cfg', cfg); }
   const isMock = () => !cfg.key;
 
   // ---------- Gemini ----------
   const SYS_BASE = 'You are a precise college differential-equations (Math 207) assistant. Be mathematically careful: verify by differentiating or substituting when unsure.';
 
-  // Ask Google which models this key can use and pick the newest plain "flash" model.
-  async function pickModel() {
+  // When one model is overloaded or retired, try the others in turn. Remember what worked this session.
+  const FALLBACKS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+  const working = {};
+  let lastModelUsed = '';
+
+  async function pickModels() {
     try {
       const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': cfg.key } });
       const data = await res.json();
-      const found = (data.models || [])
+      return (data.models || [])
         .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
         .map((m) => m.name.replace(/^models\//, ''))
-        .map((n) => ({ n, v: /^gemini-(\d+(?:\.\d+)?)-flash$/.exec(n) }))
+        .map((n) => ({ n, v: /^gemini-(\d+(?:\.\d+)?)-flash(-lite)?$/.exec(n) }))
         .filter((x) => x.v)
-        .sort((a, b) => parseFloat(b.v[1]) - parseFloat(a.v[1]));
-      return found.length ? found[0].n : null;
+        .sort((a, b) => parseFloat(b.v[1]) - parseFloat(a.v[1]) || (a.v[2] ? 1 : -1))
+        .map((x) => x.n);
     } catch (e) {
-      return null;
+      return [];
     }
   }
 
-  async function gemini({ model, system, prompt, history, json = true, thinking = true }, attempt = {}) {
+  const isTransient = (status, msg) => status === 429 || status >= 500 || /high demand|overloaded|unavailable|try again later|quota|exhausted|timed out/i.test(msg);
+  const isMissing = (status, msg) => status === 404 || /no longer available|no longer supported|not found|not supported/i.test(msg);
+
+  async function callOnce(model, { system, prompt, history, json, thinking }) {
     const contents = history || [{ role: 'user', parts: [{ text: prompt }] }];
     const generationConfig = { temperature: 0.2 };
     if (json) generationConfig.responseMimeType = 'application/json';
     if (!thinking && /2\.5/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig }),
-    });
-    if (res.status === 429 && !attempt.retried) {
-      await new Promise((r) => setTimeout(r, 4000));
-      return gemini({ model, system, prompt, history, json, thinking }, { ...attempt, retried: true });
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 30000);
+    let res;
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig }),
+        signal: ctl.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      return { ok: false, status: 0, msg: e.name === 'AbortError' ? 'Request timed out after 30 seconds' : e.message };
     }
+    clearTimeout(timer);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data.error && data.error.message) || 'Gemini error ' + res.status;
-      // model retired or unknown: ask Google which models this key can use, switch, retry once
-      if (!attempt.swapped && /no longer available|no longer supported|not found|not supported/i.test(msg)) {
-        const best = await pickModel();
-        if (best && best !== model) {
-          if (cfg.model === model) cfg.model = best;
-          if (cfg.checkModel === model) cfg.checkModel = best;
-          store.set('mc.cfg', cfg);
-          return gemini({ model: best, system, prompt, history, json, thinking }, { ...attempt, swapped: true });
-        }
-      }
-      throw new Error(msg);
-    }
+    if (!res.ok) return { ok: false, status: res.status, msg: (data.error && data.error.message) || 'Gemini error ' + res.status };
     const text = ((data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || []).map((p) => p.text || '').join('');
-    if (!json) return text;
-    return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+    return { ok: true, text };
+  }
+
+  async function gemini({ model, system, prompt, history, json = true, thinking = true }) {
+    const args = { system, prompt, history, json, thinking };
+    const tried = new Set();
+    const order = [working[model], model, ...FALLBACKS].filter((m, i, a) => m && a.indexOf(m) === i);
+    let last = null;
+    let listed = false;
+    for (let i = 0; i < order.length; i++) {
+      const m = order[i];
+      if (tried.has(m)) continue;
+      tried.add(m);
+      const r = await callOnce(m, args);
+      if (r.ok) {
+        lastModelUsed = m;
+        if (m !== model) working[model] = m;
+        if (!json) return r.text;
+        return JSON.parse(r.text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+      }
+      last = r;
+      if (!(isTransient(r.status, r.msg) || isMissing(r.status, r.msg))) break; // bad key, API disabled, bad request: more models won't help
+      if (i === order.length - 1 && !listed) {
+        listed = true; // nothing worked: ask Google what this key can use and try those
+        (await pickModels()).forEach((n) => { if (!tried.has(n)) order.push(n); });
+      }
+    }
+    throw new Error(last ? last.msg : 'No response from Gemini');
   }
 
   function hash(str) {
@@ -461,7 +489,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       out.textContent = 'Testing...';
       try {
         const r = await gemini({ model: $('#modelInput').value.trim() || cfg.model, system: 'Reply with the single word ok.', prompt: 'ping', json: false, thinking: false });
-        out.textContent = 'Works: ' + r.trim().slice(0, 20);
+        out.textContent = 'Works (model: ' + lastModelUsed + ')';
       } catch (e) {
         out.textContent = 'Failed: ' + e.message;
       }
