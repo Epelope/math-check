@@ -16,7 +16,7 @@
   const isMock = () => !cfg.key;
 
   // ---------- Gemini ----------
-  const SYS_BASE = 'You are a precise college differential-equations (Math 207) assistant. Be mathematically careful: verify by differentiating or substituting when unsure.';
+  const SYS_BASE = 'You are an expert, careful math tutor and checker for all college-level math and math-heavy courses: arithmetic and algebra, precalculus, calculus, linear algebra, differential equations, probability and statistics, discrete math, and the math in physics and engineering (e.g. statics, circuits). FIRST work out what kind of problem this is, which course level it is from, and what method(s) a student at that level is expected to use; then tailor everything to that. The problem statement is the source of truth: use exactly what it says. Never assume it is a different type of problem, and never add terms, derivatives, conditions or numbers that are not written. If the problem as written does not make sense or is ambiguous, say so plainly instead of guessing. Double-check every arithmetic and algebra step before you state it, and verify answers by substituting back or differentiating when that is possible; if you are not sure, say you are not sure.';
 
   // When one model is overloaded or retired, try the others in turn. Remember what worked this session.
   const FALLBACKS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
@@ -43,7 +43,7 @@
   const isMissing = (status, msg) => status === 404 || /no longer available|no longer supported|not found|not supported/i.test(msg);
 
   async function callOnce(model, { system, prompt, history, json, thinking }) {
-    const contents = history || [{ role: 'user', parts: [{ text: prompt }] }];
+    const contents = history || [{ role: 'user', parts: Array.isArray(prompt) ? prompt : [{ text: prompt }] }];
     const generationConfig = { temperature: 0.2 };
     if (json) generationConfig.responseMimeType = 'application/json';
     if (!thinking && /2\.5/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
@@ -109,6 +109,7 @@
     lines: {}, // desmos id -> {latex, status, matched}
     chat: [],
     more: store.get('mc.more', []),
+    set: store.get('mc.set', { title: '', problems: [], index: 0 }),
   };
 
   // ---------- math rendering ----------
@@ -228,7 +229,7 @@
       model: cfg.checkModel || cfg.model,
       thinking: false,
       system: SYS_BASE + ' You judge ONE new line of a student\'s written work in Desmos. Skipped steps are fine if the line is a true, valid consequence of earlier correct lines or a correct setup. Do not require a specific method.',
-      prompt: `Problem:\n${state.problem}\n\nReference rubric (may be incomplete; a correct but different method is still right):\n${JSON.stringify(state.rubric || {})}\n\nStudent's earlier lines with marks:\n${prevText}\n\nNEW LINE (LaTeX from Desmos):\n${latex}\n\nChoose exactly one verdict:\n- "right": the line is correct and valid.\n- "slip": the method and idea are right but there is a small human error, like a wrong digit, a dropped sign or a typo (e.g. 2 instead of 3). One tiny fix would make it right.\n- "wrong": really incorrect (wrong method, wrong setup, a real algebra or calculus error beyond a typo).\n- "unsure": you cannot tell, or the line is mostly Desmos syntax or notation trouble (e.g. dy/dx or y' typed as plain letters, missing parentheses, stray symbols). NEVER say "wrong" because of Desmos notation.\n\nReturn JSON: {"verdict":"right"|"slip"|"wrong"|"unsure","matched":[ids of rubric firstSteps this line correctly establishes, else []]}`,
+      prompt: `Problem:\n${state.problem}\n\nReference rubric (may be incomplete; a correct but different method is still right):\n${JSON.stringify(state.rubric || {})}\n\nStudent's earlier lines with marks:\n${prevText}\n\nNEW LINE (LaTeX from Desmos):\n${latex}\n\nChoose exactly one verdict:\n- "right": the line is correct and valid.\n- "slip": the method and idea are right but there is a small human error, like a wrong digit, a dropped sign or a typo (e.g. 2 instead of 3). One tiny fix would make it right.\n- "wrong": really incorrect (wrong method, wrong setup, a real algebra or calculus error beyond a typo).\n- "unsure": you cannot tell, or the line is mostly Desmos syntax or notation trouble (e.g. derivative or other notation typed as plain letters, missing parentheses, stray symbols). NEVER say "wrong" because of Desmos notation.\n\nReturn JSON: {"verdict":"right"|"slip"|"wrong"|"unsure","matched":[ids of rubric firstSteps this line correctly establishes, else []]}`,
     });
     const status = ['right', 'slip', 'wrong', 'unsure'].includes(out.verdict) ? out.verdict : 'unsure';
     return { status, matched: Array.isArray(out.matched) ? out.matched : [] };
@@ -308,11 +309,11 @@
       model: cfg.model,
       system: SYS_BASE,
       prompt: `Problem:\n${problem}\n\nSolve it carefully, then return JSON:
-{"type": short label (e.g. "separable IVP", "first-order linear", "exact equation", "mixing word problem", "Euler's method"),
+{"type": short label for the problem type and course level (e.g. "linear equation", "quadratic word problem", "u-substitution integral", "matrix row reduction", "separable differential equation", "mixing word problem", "free-body diagram / equilibrium"),
  "firstSteps": [ {"id":"s1","description":"one setup item the student must establish","acceptable":["LaTeX of the correct equation and equivalent forms"]} ],
  "solutionSteps": ["each key step of a full correct solution, in LaTeX"],
  "finalAnswer": "LaTeX or short text"}
-Rules: firstSteps is non-empty ONLY for word/modeling problems where the student must write equations from the story (list EVERY separate setup equation or quantity needed, e.g. both dV/dt and dQ/dt; include time/unit conversions if asked). For pure math problems use [].`,
+Rules: firstSteps is non-empty ONLY for word/modeling problems where the student must write equations from the story (list EVERY separate setup equation or quantity needed, e.g. each equilibrium equation or each rate equation; include time/unit conversions if asked). For pure math problems use [].`,
     });
   }
 
@@ -368,7 +369,10 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
         reply = await gemini({
           model: cfg.model,
           json: false,
-          system: SYS_BASE + ' You are tutoring a student who learns by doing homework. When they are stuck, explain the next step fully with the reasoning behind it, but do NOT solve the whole problem or hand over the final answer unless they explicitly ask for it. Answer only what they asked. Keep it focused; write math in LaTeX inside $...$.\n\nProblem:\n' + state.problem + '\n\nPrivate rubric (do not dump it): ' + JSON.stringify(state.rubric || {}) + '\n\nStudent\'s lines so far (LaTeX, with marks):\n' + lines,
+          system: SYS_BASE + ' A student is stuck on homework and is writing their steps in Desmos (the lines below are Desmos LaTeX; read them literally). Rules: (1) Directly answer the question they just asked, in plain words, before anything else. Never answer a question with only another question. (2) Explain the next step fully with the reason behind it, and show it worked on their own line, but do NOT solve the whole problem or give the final answer unless they explicitly ask. (3) Stay on the problem exactly as written; if their lines contradict the problem or the problem is unclear, say so and ask which they mean. (4) Keep it short and write math in LaTeX inside $...$.'
+            + '\n\nProblem:\n' + state.problem
+            + '\n\nPrivate rubric (do not dump it; may be wrong): ' + JSON.stringify(state.rubric || {})
+            + '\n\nStudent\'s lines so far (LaTeX, with marks):\n' + lines,
           history: state.chat.map((m) => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
         });
       }
@@ -397,7 +401,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       use.type = 'button';
       use.className = 'primary';
       use.textContent = 'Solve this';
-      use.addEventListener('click', () => { $('#problemInput').value = q.text; selectTab('check'); setProblem(q.text); });
+      use.addEventListener('click', () => { clearSet(); $('#problemInput').value = q.text; selectTab('check'); setProblem(q.text); });
       const del = document.createElement('button');
       del.type = 'button';
       del.textContent = 'Remove';
@@ -436,6 +440,86 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     btn.disabled = false;
   }
 
+  // ---------- wall of problems / PDF import ----------
+  function renderCounter() {
+    const n = state.set.problems.length;
+    $('#counterBar').hidden = n === 0;
+    if (!n) return;
+    $('#counter').textContent = 'Problem ' + (state.set.index + 1) + ' / ' + n;
+    $('#setTitle').textContent = state.set.title || '';
+    $('#prevP').disabled = state.set.index <= 0;
+    $('#nextP').disabled = state.set.index >= n - 1;
+  }
+
+  function clearSet() {
+    state.set = { title: '', problems: [], index: 0 };
+    store.set('mc.set', state.set);
+    renderCounter();
+  }
+
+  function gotoProblem(i) {
+    const n = state.set.problems.length;
+    if (!n) return;
+    state.set.index = Math.min(Math.max(i, 0), n - 1);
+    store.set('mc.set', state.set);
+    const text = state.set.problems[state.set.index];
+    $('#problemInput').value = text;
+    renderCounter();
+    selectTab('check');
+    setProblem(text);
+  }
+
+  function mockSplit(text) {
+    let parts = text.split(/\n\s*(?=(?:problem\s*)?\(?\d{1,3}[.)]\s)/i).map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 2) parts = text.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+    else if (!/^(?:problem\s*)?\(?\d{1,3}[.)]/i.test(parts[0])) parts.shift(); // a title line before problem 1
+    return parts;
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',')[1] || '');
+      r.onerror = () => reject(new Error('Could not read that file'));
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function splitWall() {
+    const text = $('#wallInput').value.trim();
+    const file = $('#pdfInput').files[0];
+    const status = $('#splitStatus');
+    if (!text && !file) { status.textContent = 'Paste problems or choose a PDF first.'; return; }
+    const btn = $('#splitBtn');
+    btn.disabled = true;
+    status.textContent = 'Finding the problems...';
+    try {
+      let problems;
+      let title = file ? file.name.replace(/\.pdf$/i, '') : 'Pasted problems';
+      if (isMock()) {
+        problems = file ? [] : mockSplit(text);
+        if (file) throw new Error('PDF reading needs your Gemini key (test mode can only split pasted text).');
+      } else {
+        const instr = 'Below is homework, a worksheet or an exam (pasted text or a PDF). Count and extract EVERY separate problem, in order. Drop interface junk (e.g. "Press Space or Enter to edit this math answer", "DETAILS", "MY NOTES", "ASK YOUR TEACHER", "PRACTICE ANOTHER", point values, answers the student already typed, page headers and footers). Keep all parts (a), (b), (c)... of one numbered problem together as ONE problem. Copy each statement faithfully, do not change any numbers, and do NOT solve anything. Write math in LaTeX inside $...$.\nReturn JSON: {"title":"short name for the set","problems":[{"text":"full problem statement"}]}';
+        const parts = [{ text: instr }];
+        if (file) parts.push({ inlineData: { mimeType: 'application/pdf', data: await fileToBase64(file) } });
+        else parts.push({ text: '\n\n' + text });
+        const out = await gemini({ model: cfg.model, system: SYS_BASE, prompt: parts });
+        problems = (out.problems || []).map((x) => (typeof x === 'string' ? x : x.text)).filter(Boolean);
+        if (out.title) title = out.title;
+      }
+      if (!problems.length) throw new Error('I could not find any problems in that.');
+      state.set = { title, problems, index: 0 };
+      store.set('mc.set', state.set);
+      status.textContent = 'Found ' + problems.length + ' problem' + (problems.length === 1 ? '' : 's') + '.';
+      $('#importBox').open = false;
+      gotoProblem(0);
+    } catch (e) {
+      status.textContent = 'Failed: ' + e.message;
+    }
+    btn.disabled = false;
+  }
+
   // ---------- tabs, settings, wiring ----------
   function selectTab(name) {
     document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
@@ -458,8 +542,8 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
 
   function wire() {
     document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
-    $('#setProblem').addEventListener('click', () => setProblem($('#problemInput').value));
-    $('#problemInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) setProblem($('#problemInput').value); });
+    $('#setProblem').addEventListener('click', () => { clearSet(); setProblem($('#problemInput').value); });
+    $('#problemInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { clearSet(); setProblem($('#problemInput').value); } });
     $('#chatForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const t = $('#chatInput').value.trim();
@@ -469,6 +553,9 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     });
     $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#chatForm').requestSubmit(); } });
     $('#makeMore').addEventListener('click', makeMore);
+    $('#splitBtn').addEventListener('click', splitWall);
+    $('#prevP').addEventListener('click', () => gotoProblem(state.set.index - 1));
+    $('#nextP').addEventListener('click', () => gotoProblem(state.set.index + 1));
 
     $('#openSettings').addEventListener('click', openSettings);
     $('#bannerKey').addEventListener('click', openSettings);
@@ -504,6 +591,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     renderMore();
     renderLines();
     renderChat();
+    renderCounter();
     if (state.problem) {
       $('#problemInput').value = state.problem;
       setProblem(state.problem);
