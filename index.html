@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Math Check</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <header>
@@ -14,10 +14,11 @@
     <span id="bannerText"></span>
     <button id="bannerKey" type="button" class="primary">Add your key</button>
   </span>
+  <button id="addToggle" type="button" class="primary" aria-expanded="false" aria-controls="addPanel">Add problems &#9662;</button>
   <button id="openSettings" type="button">Settings</button>
 </header>
 
-<section class="problem">
+<section class="problem problem-bar">
   <div id="counterBar" class="counter-bar" hidden>
     <strong id="counter"></strong>
     <span id="setTitle" class="muted"></span>
@@ -25,20 +26,26 @@
     <button id="prevP" type="button" aria-label="Previous problem">&larr; Prev</button>
     <button id="nextP" type="button" aria-label="Next problem">Next &rarr;</button>
   </div>
-  <label for="problemInput">Problem</label>
-  <textarea id="problemInput" rows="3" placeholder="Paste one problem, or a whole wall of problems (a homework set, worksheet or exam), or choose a PDF below. Use $...$ around math, e.g. Solve $y' = 2y$, $y(0)=1$."></textarea>
+  <div id="problemView" class="problem-view"></div>
+  <div class="status-line"><span id="prepStatus" class="muted"></span></div>
+</section>
+
+<div id="addPanel" class="add-panel" hidden>
+  <div class="add-head">
+    <strong>Add problems</strong>
+    <button id="addClose" type="button" aria-label="Close">&times;</button>
+  </div>
+  <textarea id="problemInput" rows="5" placeholder="Paste one problem, or a whole wall of problems (a homework set, worksheet or exam), or choose a PDF below. Use $...$ around math, e.g. Solve $y' = 2y$, $y(0)=1$."></textarea>
   <div class="row">
     <label class="file-btn" for="pdfInput">PDF</label>
     <input id="pdfInput" type="file" accept="application/pdf">
     <button id="pasteBtn" type="button">Paste from clipboard</button>
     <button id="splitBtn" type="button" class="primary">Break into problems</button>
     <button id="setProblem" type="button">One problem</button>
-    <span id="splitStatus" class="muted"></span>
   </div>
-  <div class="row"><span id="prepStatus" class="muted"></span></div>
+  <div class="row"><span id="splitStatus" class="muted"></span></div>
   <p class="muted tiny">From a WebAssign page: drag <a id="bookmarklet" href="#">Copy page for Math Check</a> to your bookmarks bar once. On the WebAssign page click that bookmark, then press <strong>Paste from clipboard</strong> here.</p>
-  <div id="problemView" class="problem-view"></div>
-</section>
+</div>
 
 <main>
   <div id="calcWrap"><div id="calculator"></div></div>
@@ -167,8 +174,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.1/math.min.js"></script>
 <script src="https://www.desmos.com/api/v1.11/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
-<script src="mathcheck.js?v=11"></script>
-<script src="providers.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="mathcheck.js?v=15"></script>
+<script src="providers.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

@@ -157,3 +157,42 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .toast button:empty { display: none; }
 
 a { color: var(--accent); }
+
+/* scrolling: never drift sideways, no rubber-band gaps, inner lists do not drag the page */
+html { overscroll-behavior: none; }
+body { overflow-x: hidden; }
+main, aside, .pane, #calcWrap, .problem { min-width: 0; }
+.pane, .chat-log { overscroll-behavior: contain; }
+#problemView { overflow-x: auto; }
+
+/* v12: the page never scrolls. Everything fits one screen; long lists scroll inside their own panel. */
+html, body { height: 100%; overflow: hidden; }
+body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; padding: 0 12px 10px; }
+header { flex: none; padding: 6px 0; gap: 8px; }
+header button { margin-left: 0; }
+header .banner { min-width: 0; }
+.problem-bar { flex: none; margin-bottom: 8px; padding: 6px 10px; }
+.problem-bar .counter-bar { margin-bottom: 4px; padding-bottom: 4px; }
+.problem-bar .problem-view { margin-top: 0; max-height: 4.6em; overflow: auto; font-size: 14px; line-height: 1.35; }
+.problem-view:empty::before { content: 'No problem yet. Click Add problems.'; color: var(--muted); }
+.status-line { min-height: 1.2em; font-size: 12px; }
+main { flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+#calcWrap { height: 100% !important; min-height: 0 !important; }
+aside { height: 100%; min-height: 0 !important; overflow: hidden; }
+.pane { flex: 1 1 auto; min-height: 0; max-height: none !important; overflow: auto; }
+.tabs { flex: none; }
+.add-panel { position: fixed; z-index: 40; top: 46px; left: 12px; right: 12px; max-width: 900px; max-height: calc(100dvh - 60px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 12px 34px rgba(0, 0, 0, .45); }
+.add-panel[hidden] { display: none; }
+.add-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.add-head button { border: 0; background: transparent; font-size: 22px; line-height: 1; padding: 0 6px; }
+.add-panel textarea { margin-top: 4px; }
+dialog { max-height: 92vh; overflow: auto; }
+@media (max-width: 860px) {
+  main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  #calcWrap { height: 100% !important; }
+}
+
+/* keep KaTeX hidden-accessibility text inside its panel so it cannot stretch the page */
+aside, .pane, .problem-bar, .problem-view, .add-panel { position: relative; }
+.add-panel { position: fixed; }
+.katex-mathml { max-width: 100%; }

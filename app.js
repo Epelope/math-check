@@ -180,6 +180,16 @@
 
   // ---------- Desmos ----------
   let calc = null;
+  function keepScroll(fn) {
+    const x = window.scrollX;
+    const y = window.scrollY;
+    const restore = () => { if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y); };
+    fn();
+    restore();
+    requestAnimationFrame(restore);
+    setTimeout(restore, 120);
+    setTimeout(restore, 500);
+  }
   function startDesmos() {
     if (!window.Desmos) {
       $('#calculator').textContent = 'Desmos could not load (check your internet connection and reload).';
@@ -187,6 +197,12 @@
     }
     calc = Desmos.GraphingCalculator($('#calculator'), { keypad: true, expressions: true, settingsMenu: true, zoomButtons: true });
     window.mcCalc = calc;
+    // Mouse wheel over the graph should scroll the page, not zoom the graph. Ctrl + wheel (or the + / - buttons) still zooms.
+    $('#calcWrap').addEventListener('wheel', (e) => {
+      if (!e.ctrlKey && !e.metaKey && e.target.closest && e.target.closest('.dcg-graph-outer')) e.stopPropagation();
+    }, { capture: true, passive: true });
+    // Desmos focuses its first line on load, which can pull the page down to it
+    setTimeout(() => { if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); window.scrollTo(0, 0); }, 400);
     calc.observeEvent('change', scheduleSync);
     window.addEventListener('resize', () => calc.resize());
   }
@@ -436,7 +452,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       { type: 'text', id: 'mc-note', text: (t.note ? t.note + '. ' : '') + 'Table columns: ' + legend.join(', ') },
       { type: 'table', id: 'mc-table', columns: cols }
     );
-    calc.setState(st);
+    keepScroll(() => calc.setState(st));
   }
 
   // Yes/No grids: one editable Desmos text row per item; the student types Yes or No after each colon.
@@ -453,7 +469,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       { type: 'text', id: 'mc-gridnote', text: (g.note ? String(g.note).replace(/\s+$/, '') + ' ' : '') + 'Click a row and replace each ___ with Yes or No.' },
       ...rows.map((r) => ({ type: 'text', id: r.id, text: r.label + '   -   ' + blanks }))
     );
-    calc.setState(st);
+    keepScroll(() => calc.setState(st));
   }
 
   async function setProblem(text, keepWork) {
@@ -465,7 +481,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       state.lines = {};
       state.chat = [];
       renderChat();
-      if (calc) calc.setBlank();
+      if (calc) keepScroll(() => calc.setBlank());
     }
     renderLines();
     setTextWithMath($('#problemView'), state.problem);
@@ -692,6 +708,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       if (!problems.length) throw new Error('I could not find any problems in that.');
       status.textContent = 'Found ' + problems.length + ' problem' + (problems.length === 1 ? '' : 's') + '.';
       useSet(title, problems);
+      setAddPanel(false);
     } catch (e) {
       status.textContent = 'Failed: ' + e.message;
     }
@@ -718,6 +735,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     }
     clearSet();
     setProblem($('#problemInput').value);
+    setAddPanel(false);
   }
 
   async function pasteClipboard() {
@@ -1010,6 +1028,12 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     $('#autoNext').addEventListener('change', (e) => { cfg.autoNext = e.target.checked; saveCfg(); });
   }
 
+  function setAddPanel(open) {
+    $('#addPanel').hidden = !open;
+    $('#addToggle').setAttribute('aria-expanded', String(open));
+    if (open) $('#problemInput').focus();
+  }
+
   // ---------- tabs, settings, wiring ----------
   const TABS = ['check', 'chat', 'ans', 'key', 'more', 'prac'];
   function selectTab(name) {
@@ -1068,6 +1092,9 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
   function wire() {
     document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
     $('#setProblem').addEventListener('click', oneProblem);
+    $('#addToggle').addEventListener('click', () => setAddPanel($('#addPanel').hidden));
+    $('#addClose').addEventListener('click', () => setAddPanel(false));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#addPanel').hidden) setAddPanel(false); });
     $('#problemInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) oneProblem(); });
     $('#chatForm').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -1167,6 +1194,8 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     if (state.problem) {
       $('#problemInput').value = state.problem;
       setProblem(state.problem);
+    } else {
+      setAddPanel(true);
     }
   });
 })();
