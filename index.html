@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Math Check</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Math Check</h1>
+  <span id="banner" class="banner" hidden>
+    <span id="bannerText"></span>
+    <button id="bannerKey" type="button" class="primary">Add your key</button>
+  </span>
+  <button id="openSettings" type="button">Settings</button>
+</header>
+
+<section class="problem">
+  <label for="problemInput">Problem</label>
+  <textarea id="problemInput" rows="2" placeholder="Paste or type a problem. Use $...$ around math, e.g. Solve $y' = 2y$, $y(0)=1$."></textarea>
+  <div class="row">
+    <button id="setProblem" type="button" class="primary">Set problem</button>
+    <span id="prepStatus" class="muted"></span>
+  </div>
+  <div id="problemView" class="problem-view"></div>
+</section>
+
+<main>
+  <div id="calcWrap"><div id="calculator"></div></div>
+
+  <aside>
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="check" aria-selected="true">Checks</button>
+      <button type="button" role="tab" data-tab="chat" aria-selected="false">Chat</button>
+      <button type="button" role="tab" data-tab="more" aria-selected="false">More questions</button>
+    </nav>
+
+    <div class="pane" id="pane-check">
+      <div id="setupScore" class="setup" hidden></div>
+      <ol id="lineList" class="lines"></ol>
+      <p id="lineEmpty" class="muted">Write your steps in Desmos, one per line. Each line gets a mark here.</p>
+      <div class="legend" aria-label="Key to the check marks">
+        <h2>Key</h2>
+        <ul>
+          <li><span class="mark green">✓</span> Right</li>
+          <li><span class="mark yellow">✓</span> Minor slip (e.g. a 2 instead of a 3); the idea is right</li>
+          <li><span class="mark red">✗</span> Really wrong</li>
+          <li><span class="mark gray">?</span> Can't tell (notation, unclear line, or the AI wasn't sure). Click it to re-check</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-chat" hidden>
+      <div id="chatLog" class="chat-log"></div>
+      <form id="chatForm" class="chat-form">
+        <textarea id="chatInput" rows="2" placeholder="Ask about the step you're stuck on..."></textarea>
+        <button type="submit" class="primary">Send</button>
+      </form>
+    </div>
+
+    <div class="pane" id="pane-more" hidden>
+      <div class="row">
+        <label for="moreCount">How many</label>
+        <select id="moreCount"><option>2</option><option selected>3</option><option>5</option></select>
+        <button id="makeMore" type="button" class="primary">Add more questions like this</button>
+      </div>
+      <p id="moreStatus" class="muted"></p>
+      <ul id="moreList" class="more-list"></ul>
+    </div>
+  </aside>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2>Settings</h2>
+    <p class="muted">Your key stays in this browser only. It is sent straight to Google when a check runs, never to anyone else.</p>
+    <label for="keyInput">Gemini API key</label>
+    <input id="keyInput" type="password" autocomplete="off" placeholder="paste your key">
+    <p class="muted"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key</a> (about a minute, Google account needed).</p>
+    <label for="modelInput">Model for setting up problems, chat and new questions</label>
+    <input id="modelInput" type="text" placeholder="gemini-2.5-flash">
+    <label for="checkModelInput">Model for the per-line checks (faster is better)</label>
+    <input id="checkModelInput" type="text" placeholder="gemini-2.5-flash">
+    <div class="row">
+      <button id="testKey" type="button">Test key</button>
+      <span id="testResult" class="muted"></span>
+    </div>
+    <div class="row end">
+      <button value="cancel" type="submit">Close</button>
+      <button id="saveSettings" value="save" type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.1/math.min.js"></script>
+<script src="https://www.desmos.com/api/v1.11/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
+<script src="mathcheck.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
