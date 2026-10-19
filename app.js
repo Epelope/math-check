@@ -470,10 +470,11 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
   }
 
   function mockSplit(text) {
-    let parts = text.split(/\n\s*(?=(?:problem\s*)?\(?\d{1,3}[.)]\s)/i).map((x) => x.trim()).filter(Boolean);
+    const start = /^(?:problem\s*)?\(?\d{1,3}\)?[.)]\s/i;
+    let parts = text.split(/\n\s*(?=(?:problem\s*)?\(?\d{1,3}\)?[.)]\s)/i).map((x) => x.trim()).filter(Boolean);
     if (parts.length < 2) parts = text.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
-    else if (!/^(?:problem\s*)?\(?\d{1,3}[.)]/i.test(parts[0])) parts.shift(); // a title line before problem 1
-    return parts;
+    else if (!start.test(parts[0] + ' ')) parts.shift(); // a title/instructions block before problem 1
+    return parts.map((x) => x.replace(/\n\s*\d{1,2}\s*$/, '').trim()); // drop stray page numbers at the end
   }
 
   function fileToBase64(file) {
