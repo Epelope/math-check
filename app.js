@@ -368,6 +368,7 @@
       if (l.text) tex.textContent = l.latex;
       else { try { katex.render(l.latex, tex, { throwOnError: false, errorColor: '#8a93a3' }); } catch (e) { tex.textContent = l.latex; } }
       li.append(mark, tex);
+      if (st.ai) { const tag = document.createElement('span'); tag.className = 'aitag'; tag.textContent = 'AI'; tag.title = 'Written by the Next step button'; li.append(tag); }
       if (st.status === 'right') {
         const star = document.createElement('button');
         star.type = 'button';
@@ -499,6 +500,47 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     } catch (e) {
       if (state.rubricPromise !== mine) return;
       setPrep('Could not prepare the checker: ' + e.message, true);
+    }
+  }
+
+  // ---------- next step: the AI writes the next small step as a new Desmos line ----------
+  function addLineToDesmos(latex, meta) {
+    // reuse the first empty line so the step lands on the next line of the student's work
+    const blank = calc.getExpressions().find((e) => e.type === 'expression' && (!e.latex || !e.latex.trim()));
+    const id = blank ? blank.id : 'ai-' + Date.now();
+    keepScroll(() => calc.setExpression({ id, latex }));
+    const norm = ((calc.getExpressions().find((e) => e.id === id) || {}).latex || latex).trim();
+    state.lines[id] = { latex: norm, status: 'right', matched: Array.isArray(meta.matched) ? meta.matched : [], ai: true };
+    renderLines();
+  }
+
+  async function nextStep() {
+    const btn = $('#nextStep');
+    const status = $('#nextStatus');
+    if (!state.problem) { status.textContent = 'Set a problem first (Add problems).'; return; }
+    if (isMock()) { status.textContent = 'Test mode: add your key in Settings to get real next steps.'; return; }
+    if (state.grid) { status.textContent = 'Next step is not available for Yes/No grids. Type Yes or No in a row.'; return; }
+    if (!calc) { status.textContent = 'Desmos has not loaded.'; return; }
+    btn.disabled = true;
+    status.textContent = 'Working out the next step...';
+    try {
+      if (state.rubricPromise) { try { await state.rubricPromise; } catch (e) { /* go without the rubric */ } }
+      const lines = currentLines().filter((l) => !l.text);
+      const listing = lines.map((l, i) => `${i + 1}. ${l.latex}  [${(state.lines[l.id] || {}).status || 'unchecked'}]`).join('\n') || '(none yet)';
+      const out = await ai({
+        model: 'main',
+        system: SYS_BASE + ' Right now you are writing the NEXT STEP of the student\'s work for them, as one new math line.',
+        prompt: `Problem:\n${state.problem}\n\nReference rubric (may be incomplete):\n${JSON.stringify(state.rubric || {})}\n\nThe student's lines so far (Desmos LaTeX, with marks), in order:\n${listing}\n\nWrite exactly ONE new line: the next small, meaningful step that follows from the student's last correct line (ignore lines marked wrong or slip; if there are no lines yet, write the first step, such as the first setup equation or the first manipulation). One step means one idea (one integration, one simplification, one substitution), not several. The line must be mathematically correct and valid Desmos LaTeX that the student could type: evaluate indefinite integrals and write the result instead of an integral sign, use \\ln, absolute value bars, e^{...}, \\frac{...}{...}, and keep an equation as an equation. Desmos does NOT know the word exp, so always write a power of e as e^{...} (for example e^{-\\ln|\\cos(t)|}), and write absolute value with the bars | |, not abs. Never put words or units inside the line. If the student's last line is already the complete final answer to every part of the problem, set "done" to true and leave "latex" empty.\nReturn JSON: {"latex":"the new line in LaTeX","why":"at most 15 words saying what this step did","done":false,"matched":[ids of rubric firstSteps this line establishes, else []],"isFinal":false}. Write every LaTeX backslash in the JSON as a double backslash.`,
+      });
+      if (out.done) { status.textContent = 'Your last line already looks like the final answer.'; return; }
+      const latex = String(out.latex || '').trim();
+      if (!latex) throw new Error('The AI did not return a line.');
+      addLineToDesmos(latex, out);
+      status.textContent = (out.why ? out.why + '. ' : 'Added the next step. ') + (out.isFinal ? 'That is the final answer: click the star to save it.' : 'Press Next step again for the one after.');
+    } catch (e) {
+      status.textContent = 'Failed: ' + e.message;
+    } finally {
+      btn.disabled = false;
     }
   }
 
@@ -1105,6 +1147,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     });
     $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#chatForm').requestSubmit(); } });
     $('#makeMore').addEventListener('click', makeMore);
+    $('#nextStep').addEventListener('click', nextStep);
     $('#splitBtn').addEventListener('click', splitWall);
     $('#pasteBtn').addEventListener('click', pasteClipboard);
     $('#pracBtn').addEventListener('click', makePracticeTest);

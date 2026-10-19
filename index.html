@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Math Check</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <header>
@@ -61,6 +61,10 @@
     </nav>
 
     <div class="pane" id="pane-check">
+      <div class="row next-row">
+        <button id="nextStep" type="button" class="primary">Next step</button>
+        <span id="nextStatus" class="muted"></span>
+      </div>
       <div id="setupScore" class="setup" hidden></div>
       <ol id="lineList" class="lines"></ol>
       <p id="lineEmpty" class="muted">Write your steps in Desmos, one per line. Each line gets a mark here.</p>
@@ -174,8 +178,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.1/math.min.js"></script>
 <script src="https://www.desmos.com/api/v1.11/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
-<script src="mathcheck.js?v=15"></script>
-<script src="providers.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="mathcheck.js?v=16"></script>
+<script src="providers.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

@@ -196,3 +196,6 @@ dialog { max-height: 92vh; overflow: auto; }
 aside, .pane, .problem-bar, .problem-view, .add-panel { position: relative; }
 .add-panel { position: fixed; }
 .katex-mathml { max-width: 100%; }
+
+.next-row { margin: 0 0 10px; }
+.aitag { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
