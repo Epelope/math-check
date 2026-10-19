@@ -199,3 +199,37 @@ aside, .pane, .problem-bar, .problem-view, .add-panel { position: relative; }
 
 .next-row { margin: 0 0 10px; }
 .aitag { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
+
+/* v17 polish: tighter problem bar, side-by-side down to narrow windows, math left-aligned and compact */
+.problem-bar { padding: 4px 10px; margin-bottom: 6px; }
+.problem-bar .counter-bar { margin-bottom: 2px; padding-bottom: 2px; gap: 8px; }
+.counter-bar strong { font-size: 15px; }
+.counter-bar button { padding: 3px 10px; }
+.problem-bar .problem-view { max-height: 5.4em; font-size: 13.5px; }
+.problem-view .katex-display { margin: .25em 0; text-align: left; }
+.problem-view .katex-display > .katex { text-align: left; }
+.status-line { min-height: 1em; line-height: 1.1; }
+@media (max-width: 860px) {
+  main { grid-template-columns: minmax(0, 1fr) minmax(250px, .8fr); grid-template-rows: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* Test review overlay */
+.review-panel { position: fixed; z-index: 45; top: 46px; left: 12px; right: 12px; max-width: 980px; max-height: calc(100dvh - 60px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 12px 34px rgba(0, 0, 0, .45); }
+.review-panel[hidden] { display: none; }
+.rev-summary { display: flex; align-items: center; gap: 12px; margin: 4px 0 10px; font-weight: 600; }
+.rev-track { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.rev-fill { height: 100%; width: 0; background: var(--green); transition: width .3s; }
+.rev-body { display: flex; flex-direction: column; gap: 8px; }
+.rev-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.rev-item.done { border-left: 4px solid var(--green); }
+.rev-item.todo { border-left: 4px solid var(--gray); }
+.rev-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.rev-badge { font-size: 12px; border-radius: 10px; padding: 1px 8px; color: #fff; background: var(--gray); }
+.rev-item.done .rev-badge { background: var(--green); }
+.rev-q { font-size: 13.5px; white-space: pre-wrap; color: var(--muted); }
+.rev-a { margin: 6px 0; padding: 6px 10px; border-radius: 6px; background: var(--bg); overflow-x: auto; }
+.rev-a .lab { font-size: 12px; color: var(--muted); margin-right: 8px; }
+.rev-item .row { margin-top: 4px; }

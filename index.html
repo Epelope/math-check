@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Math Check</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <header>
@@ -14,6 +14,7 @@
     <span id="bannerText"></span>
     <button id="bannerKey" type="button" class="primary">Add your key</button>
   </span>
+  <button id="reviewToggle" type="button" aria-expanded="false" aria-controls="reviewPanel">Test review</button>
   <button id="addToggle" type="button" class="primary" aria-expanded="false" aria-controls="addPanel">Add problems &#9662;</button>
   <button id="openSettings" type="button">Settings</button>
 </header>
@@ -135,6 +136,24 @@
   </aside>
 </main>
 
+<div id="reviewPanel" class="review-panel" hidden>
+  <div class="add-head">
+    <strong id="reviewTitle">Test review</strong>
+    <button id="reviewClose" type="button" aria-label="Close">&times;</button>
+  </div>
+  <div class="rev-summary"><span id="reviewSummary"></span><div class="rev-track"><div id="reviewBar" class="rev-fill"></div></div></div>
+  <div id="reviewBody" class="rev-body"></div>
+  <div class="export-box">
+    <div class="row">
+      <button id="revCopy" type="button">Copy all</button>
+      <button id="revWord" type="button">Word (.doc)</button>
+      <button id="revPdf" type="button">PDF (print)</button>
+      <button id="revGoogle" type="button">Google Docs (sign in)</button>
+    </div>
+    <p id="revStatus" class="muted"></p>
+  </div>
+</div>
+
 <div id="toast" class="toast" hidden>
   <span id="toastText"></span>
   <button id="toastA" type="button"></button>
@@ -178,8 +197,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.1/math.min.js"></script>
 <script src="https://www.desmos.com/api/v1.11/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
-<script src="mathcheck.js?v=16"></script>
-<script src="providers.js?v=16"></script>
-<script src="app.js?v=16"></script>
+<script src="mathcheck.js?v=18"></script>
+<script src="providers.js?v=18"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

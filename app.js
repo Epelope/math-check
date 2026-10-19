@@ -183,7 +183,11 @@
   function keepScroll(fn) {
     const x = window.scrollX;
     const y = window.scrollY;
-    const restore = () => { if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y); };
+    void x; void y;
+    const restore = () => {
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+      [document.body, document.documentElement, $('#calcWrap'), $('main'), $('aside')].forEach((el) => { if (el && (el.scrollTop || el.scrollLeft)) { el.scrollTop = 0; el.scrollLeft = 0; } });
+    };
     fn();
     restore();
     requestAnimationFrame(restore);
@@ -197,6 +201,10 @@
     }
     calc = Desmos.GraphingCalculator($('#calculator'), { keypad: true, expressions: true, settingsMenu: true, zoomButtons: true });
     window.mcCalc = calc;
+    // the page and its big boxes must never be scrolled, so snap back whenever something tries (focus jumps)
+    const snap = (el) => el && el.addEventListener('scroll', () => { if (el.scrollTop || el.scrollLeft) { el.scrollTop = 0; el.scrollLeft = 0; } }, { passive: true });
+    [document.body, document.documentElement, $('#calcWrap'), $('main'), $('aside')].forEach(snap);
+    window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
     // Mouse wheel over the graph should scroll the page, not zoom the graph. Ctrl + wheel (or the + / - buttons) still zooms.
     $('#calcWrap').addEventListener('wheel', (e) => {
       if (!e.ctrlKey && !e.metaKey && e.target.closest && e.target.closest('.dcg-graph-outer')) e.stopPropagation();
@@ -434,12 +442,22 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     const okNum = /^[-+0-9.\/()\s*^]+$/;
     const used = new Set();
     const legend = [];
+    const sub = (d) => String(d).split('').map((ch) => '\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089'[Number(ch)]).join('');
+    const pretty = (latex) => latex.replace('_{n}', '\u2099').replace(/_\{(\d+)\}/, (m, d) => sub(d));
+    const letterFor = (name) => {
+      if (/['\u2032]|prime|deriv/i.test(name)) return 'd';
+      const m = /[A-Za-z]/.exec(name);
+      return m ? m[0] : 'c';
+    };
     const cols = t.columns.slice(0, 8).map((c, i) => {
       const name = String(c.name == null ? '' : c.name).trim();
-      let latex = /^[A-Za-z]$/.test(name) ? name + '_{n}' : 'c_{' + (i + 1) + '}';
-      if (used.has(latex)) latex = 'c_{' + (i + 1) + '}';
+      let latex = letterFor(name) + '_{n}';
+      if (used.has(latex)) {
+        const alt = (name.match(/[A-Za-z]/g) || []).map((ch) => ch + '_{n}').find((x) => !used.has(x));
+        latex = alt || 'c_{' + (i + 1) + '}';
+      }
       used.add(latex);
-      legend.push(latex.replace(/[{}]/g, '') + ' = ' + (name || 'column ' + (i + 1)));
+      legend.push(pretty(latex) + ' = ' + (name || 'column ' + (i + 1)));
       const values = Array.from({ length: len }, (_, r) => {
         const v = (c.values || [])[r];
         const str = v == null ? '' : String(v).trim();
@@ -450,8 +468,8 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     const st = calc.getState();
     st.expressions.list = st.expressions.list.filter((e) => !String(e.id || '').startsWith('mc-'));
     st.expressions.list.unshift(
-      { type: 'text', id: 'mc-note', text: (t.note ? t.note + '. ' : '') + 'Table columns: ' + legend.join(', ') },
-      { type: 'table', id: 'mc-table', columns: cols }
+      { type: 'table', id: 'mc-table', columns: cols },
+      { type: 'text', id: 'mc-note', text: (t.note && t.note.length <= 60 ? t.note.replace(/[.\s]+$/, '') + '. ' : '') + 'Columns: ' + legend.join(', ') }
     );
     keepScroll(() => calc.setState(st));
   }
@@ -964,6 +982,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
   }
 
   function renderAnswers() {
+    if ($('#reviewPanel') && !$('#reviewPanel').hidden) renderReview();
     const ul = $('#ansList');
     ul.textContent = '';
     const list = sortedAnswers();
@@ -1003,6 +1022,84 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     });
   }
 
+  // ---------- test review: every question with the answer you got right ----------
+  function reviewItems() {
+    const items = [];
+    const seen = new Set();
+    problemList().forEach((p) => {
+      const id = keyId(p.text);
+      seen.add(id);
+      items.push({ n: p.n, text: p.text, id, ans: state.answers[id] || null });
+    });
+    sortedAnswers().forEach((a) => { if (!seen.has(a.id)) items.push({ n: a.n, text: a.problem, id: a.id, ans: a, extra: true }); });
+    return items;
+  }
+
+  function renderReview() {
+    const body = $('#reviewBody');
+    body.textContent = '';
+    const items = reviewItems();
+    const answered = items.filter((i) => i.ans).length;
+    $('#reviewTitle').textContent = 'Test review' + (state.set.title ? ': ' + state.set.title : '');
+    $('#reviewSummary').textContent = items.length ? answered + ' of ' + items.length + ' answered' : 'No problems yet. Use Add problems.';
+    $('#reviewBar').style.width = items.length ? Math.round((100 * answered) / items.length) + '%' : '0%';
+    items.forEach((it) => {
+      const card = document.createElement('div');
+      card.className = 'rev-item ' + (it.ans ? 'done' : 'todo');
+      const head = document.createElement('div');
+      head.className = 'rev-head';
+      const label = document.createElement('strong');
+      label.textContent = 'Problem ' + it.n;
+      const badge = document.createElement('span');
+      badge.className = 'rev-badge';
+      badge.textContent = it.ans ? '\u2713 Answered' : 'Not answered yet';
+      head.append(label, badge);
+      const q = document.createElement('div');
+      q.className = 'rev-q';
+      setTextWithMath(q, it.text);
+      card.append(head, q);
+      if (it.ans) {
+        const a = document.createElement('div');
+        a.className = 'rev-a';
+        const lab = document.createElement('span');
+        lab.className = 'lab';
+        lab.textContent = 'Your correct answer:';
+        const tex = document.createElement('span');
+        try { katex.render(it.ans.latex, tex, { throwOnError: false, errorColor: '#8a93a3' }); } catch (e) { tex.textContent = it.ans.latex; }
+        a.append(lab, tex);
+        card.append(a);
+      }
+      const row = document.createElement('div');
+      row.className = 'row';
+      const mk = (txt, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.addEventListener('click', fn); row.append(b); };
+      mk(it.ans ? 'Go to problem' : 'Solve it', () => {
+        const i = state.set.problems.findIndex((t) => keyId(t) === it.id);
+        setReviewPanel(false);
+        if (i >= 0) gotoProblem(i);
+        else { clearSet(); $('#problemInput').value = it.text; selectTab('check'); setProblem(it.text); }
+      });
+      if (it.ans) mk('Copy answer', () => copyText(plainMath(it.ans.latex), 'the answer'));
+      const k = state.keys[it.id];
+      if (k) {
+        mk(state.keyOpen['r' + it.id] ? 'Hide AI key' : 'Compare with AI key', () => { state.keyOpen['r' + it.id] = !state.keyOpen['r' + it.id]; renderReview(); });
+      }
+      card.append(row);
+      if (k && state.keyOpen['r' + it.id]) {
+        const box = document.createElement('div');
+        box.className = 'key-answer';
+        setTextWithMath(box, 'AI key: ' + k.answer);
+        card.append(box);
+      }
+      body.append(card);
+    });
+  }
+
+  function setReviewPanel(open) {
+    $('#reviewPanel').hidden = !open;
+    $('#reviewToggle').setAttribute('aria-expanded', String(open));
+    if (open) { setAddPanel(false); renderReview(); }
+  }
+
   function exportTitle() { const t = sortedAnswers().find((a) => a.set); return (t && t.set) || 'My answers'; }
   function exportText() {
     return exportTitle() + '\n\n' + sortedAnswers().map((a) => a.n + '. ' + a.problem.replace(/\s+/g, ' ').slice(0, 90) + '\n   Answer: ' + plainMath(a.latex)).join('\n\n') + '\n';
@@ -1033,8 +1130,10 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 5000); };
   }
 
+  function setExpStatus(t) { ['#expStatus', '#revStatus'].forEach((sel) => { const el = $(sel); if (el) el.textContent = t; }); }
+
   async function exportGoogle() {
-    const status = $('#expStatus');
+    const status = { set textContent(t) { setExpStatus(t); } };
     if (!cfg.googleClientId) { status.textContent = 'Google Docs export needs a Google OAuth client ID. Add one in Settings (it needs a free Google Cloud project).'; return; }
     status.textContent = 'Opening Google sign-in...';
     try {
@@ -1061,11 +1160,13 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
   }
 
   function wireExport() {
-    const need = () => { if (!sortedAnswers().length) { $('#expStatus').textContent = 'Nothing to export yet.'; return false; } $('#expStatus').textContent = ''; return true; };
-    $('#expCopy').addEventListener('click', () => { if (need()) copyText(exportText(), 'all answers'); });
-    $('#expWord').addEventListener('click', () => { if (need()) download('answers.doc', 'application/msword', exportHtml()); });
-    $('#expPdf').addEventListener('click', () => { if (need()) printHtml(exportHtml()); });
-    $('#expGoogle').addEventListener('click', () => { if (need()) exportGoogle(); });
+    const need = () => { if (!sortedAnswers().length) { setExpStatus('Nothing to export yet.'); return false; } setExpStatus(''); return true; };
+    const doCopy = () => { if (need()) copyText(exportText(), 'all answers'); };
+    const doWord = () => { if (need()) download('answers.doc', 'application/msword', exportHtml()); };
+    const doPdf = () => { if (need()) printHtml(exportHtml()); };
+    const doGoogle = () => { if (need()) exportGoogle(); };
+    [['#expCopy', doCopy], ['#expWord', doWord], ['#expPdf', doPdf], ['#expGoogle', doGoogle], ['#revCopy', doCopy], ['#revWord', doWord], ['#revPdf', doPdf], ['#revGoogle', doGoogle]]
+      .forEach(([sel, fn]) => $(sel).addEventListener('click', fn));
     $('#autoNext').checked = cfg.autoNext;
     $('#autoNext').addEventListener('change', (e) => { cfg.autoNext = e.target.checked; saveCfg(); });
   }
@@ -1073,7 +1174,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
   function setAddPanel(open) {
     $('#addPanel').hidden = !open;
     $('#addToggle').setAttribute('aria-expanded', String(open));
-    if (open) $('#problemInput').focus();
+    if (open) { if (!$('#reviewPanel').hidden) setReviewPanel(false); $('#problemInput').focus(); }
   }
 
   // ---------- tabs, settings, wiring ----------
@@ -1136,7 +1237,9 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     $('#setProblem').addEventListener('click', oneProblem);
     $('#addToggle').addEventListener('click', () => setAddPanel($('#addPanel').hidden));
     $('#addClose').addEventListener('click', () => setAddPanel(false));
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#addPanel').hidden) setAddPanel(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('#addPanel').hidden) setAddPanel(false); if (!$('#reviewPanel').hidden) setReviewPanel(false); } });
+    $('#reviewToggle').addEventListener('click', () => setReviewPanel($('#reviewPanel').hidden));
+    $('#reviewClose').addEventListener('click', () => setReviewPanel(false));
     $('#problemInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) oneProblem(); });
     $('#chatForm').addEventListener('submit', (e) => {
       e.preventDefault();
