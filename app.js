@@ -16,7 +16,7 @@
   const isMock = () => !cfg.key;
 
   // ---------- Gemini ----------
-  const SYS_BASE = 'You are an expert, careful math tutor and checker for all college-level math and math-heavy courses: arithmetic and algebra, precalculus, calculus, linear algebra, differential equations, probability and statistics, discrete math, and the math in physics and engineering (e.g. statics, circuits). FIRST work out what kind of problem this is, which course level it is from, and what method(s) a student at that level is expected to use; then tailor everything to that. The problem statement is the source of truth: use exactly what it says. Never assume it is a different type of problem, and never add terms, derivatives, conditions or numbers that are not written. If the problem as written does not make sense or is ambiguous, say so plainly instead of guessing. Double-check every arithmetic and algebra step before you state it, and verify answers by substituting back or differentiating when that is possible; if you are not sure, say you are not sure.';
+  const SYS_BASE = 'You are an expert, careful math tutor and checker for all college-level math and math-heavy courses: arithmetic and algebra, precalculus, calculus, linear algebra, differential equations, probability and statistics, discrete math, and the math in physics and engineering (e.g. statics, circuits). FIRST work out what kind of problem this is, which course level it is from, and what method(s) a student at that level is expected to use; then tailor everything to that. The problem statement is the source of truth: use exactly what it says. Never assume it is a different type of problem, and never add terms, derivatives, conditions or numbers that are not written. If the problem as written does not make sense or is ambiguous, say so plainly instead of guessing. Double-check every arithmetic and algebra step before you state it, and verify answers by substituting back or differentiating when that is possible; if you are not sure, say you are not sure. HOW THIS APP WORKS (you cannot see the screen, so rely on this): the student works inside a web app called Math Check. The problem is shown at the top. Below it is an embedded Desmos graphing calculator where the student types each step of their work as its own math line; you receive those lines as Desmos LaTeX, in order, never as pictures. The app puts a mark next to each line: green = right, yellow = minor slip, red = really wrong, gray = can\'t tell. If a problem has a table to fill in, the app builds that table in Desmos for the student (numbers only; Yes/No answers are entered as 1 = Yes and 0 = No). Desmos has no text-answer boxes, no symbolic algebra and no indefinite integrals, so students write derivatives, integrals and words loosely as math lines (for example dy/dx, y\' or an integral sign without limits) and write answers as an equation or a number on their own line. Judge the mathematics and the intent, never Desmos formatting. Do not mention buttons, tabs or features that do not exist in this app, and do not tell the student to do something on paper or in a place the app does not have.';
 
   // When one model is overloaded or retired, try the others in turn. Remember what worked this session.
   const FALLBACKS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
@@ -41,6 +41,17 @@
 
   const isTransient = (status, msg) => status === 429 || status >= 500 || /high demand|overloaded|unavailable|try again later|quota|exhausted|timed out/i.test(msg);
   const isMissing = (status, msg) => status === 404 || /no longer available|no longer supported|not found|not supported/i.test(msg);
+
+  // The AI often writes LaTeX like \frac or \int with single backslashes inside JSON strings, which breaks JSON
+  // (or silently turns \frac into a form feed). Double those backslashes before parsing.
+  function parseJsonLoose(raw) {
+    const text = raw.replace(/^```(?:json)?\s*|\s*```$/g, '');
+    const fixed = text.replace(
+      /\\\\|\\(?!["\/]|u[0-9a-fA-F]{4}|[bfnrt](?!(?:rac|orall|eta|inom|ar|egin|mod|u|eq|e|abla|ot|otin|ho|ight|au|heta|an|ext|imes|o|ilde|op|frac|oldsymbol)(?![a-z])))/g,
+      (m) => (m === '\\\\' ? m : '\\\\')
+    );
+    try { return JSON.parse(fixed); } catch (e) { return JSON.parse(text); }
+  }
 
   async function callOnce(model, { system, prompt, history, json, thinking }) {
     const contents = history || [{ role: 'user', parts: Array.isArray(prompt) ? prompt : [{ text: prompt }] }];
@@ -83,7 +94,7 @@
         lastModelUsed = m;
         if (m !== model) working[model] = m;
         if (!json) return r.text;
-        return JSON.parse(r.text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+        return parseJsonLoose(r.text);
       }
       last = r;
       if (!(isTransient(r.status, r.msg) || isMissing(r.status, r.msg))) break; // bad key, API disabled, bad request: more models won't help
@@ -110,6 +121,8 @@
     chat: [],
     more: store.get('mc.more', []),
     set: store.get('mc.set', { title: '', problems: [], index: 0 }),
+    keys: store.get('mc.keys', {}),
+    keyOpen: {},
   };
 
   // ---------- math rendering ----------
@@ -312,9 +325,41 @@
 {"type": short label for the problem type and course level (e.g. "linear equation", "quadratic word problem", "u-substitution integral", "matrix row reduction", "separable differential equation", "mixing word problem", "free-body diagram / equilibrium"),
  "firstSteps": [ {"id":"s1","description":"one setup item the student must establish","acceptable":["LaTeX of the correct equation and equivalent forms"]} ],
  "solutionSteps": ["each key step of a full correct solution, in LaTeX"],
- "finalAnswer": "LaTeX or short text"}
+ "finalAnswer": "LaTeX or short text",
+ "table": null}
+If the problem asks the student to fill in or complete a table (e.g. Euler's method values, a Yes/No classification grid), set "table" to {"note":"how to read it, e.g. 1 = Yes, 0 = No","columns":[{"name":"t","values":["1","1.25","1.5","1.75","2"]},{"name":"y","values":["1","","","",""]}]} using the given numbers as strings and "" for every cell the student must fill. Every column needs the same number of values. A column name is a single letter or a short label. For Yes/No grids use 1 for Yes and 0 for No, make the first column the row numbers 1..n, and name the other columns after what they ask. NEVER put answers into the blank cells. Otherwise "table" must be null.
 Rules: firstSteps is non-empty ONLY for word/modeling problems where the student must write equations from the story (list EVERY separate setup equation or quantity needed, e.g. each equilibrium equation or each rate equation; include time/unit conversions if asked). For pure math problems use [].`,
     });
+  }
+
+  // Put the problem's table into Desmos (numbers only; blank cells are for the student to fill in).
+  function buildTable(t) {
+    if (!calc || !t || !Array.isArray(t.columns) || !t.columns.length) return;
+    const len = Math.max(...t.columns.map((c) => (c.values || []).length));
+    if (!len || len > 40) return;
+    const okNum = /^[-+0-9.\/()\s*^]+$/;
+    const used = new Set();
+    const legend = [];
+    const cols = t.columns.slice(0, 8).map((c, i) => {
+      const name = String(c.name == null ? '' : c.name).trim();
+      let latex = /^[A-Za-z]$/.test(name) ? name + '_{n}' : 'c_{' + (i + 1) + '}';
+      if (used.has(latex)) latex = 'c_{' + (i + 1) + '}';
+      used.add(latex);
+      legend.push(latex.replace(/[{}]/g, '') + ' = ' + (name || 'column ' + (i + 1)));
+      const values = Array.from({ length: len }, (_, r) => {
+        const v = (c.values || [])[r];
+        const str = v == null ? '' : String(v).trim();
+        return okNum.test(str) ? str : '';
+      });
+      return { latex, values };
+    });
+    const st = calc.getState();
+    st.expressions.list = st.expressions.list.filter((e) => !String(e.id || '').startsWith('mc-'));
+    st.expressions.list.unshift(
+      { type: 'text', id: 'mc-note', text: (t.note ? t.note + '. ' : '') + 'Table columns: ' + legend.join(', ') },
+      { type: 'table', id: 'mc-table', columns: cols }
+    );
+    calc.setState(st);
   }
 
   async function setProblem(text, keepWork) {
@@ -336,6 +381,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       const r = await mine;
       if (state.rubricPromise !== mine) return;
       state.rubric = r;
+      try { buildTable(r.table); } catch (e) { console.warn('table failed:', e.message); }
       setPrep(isMock() ? 'Ready (test mode)' : 'Ready' + ((r.firstSteps || []).length ? ': word problem, ' + r.firstSteps.length + ' setup steps' : ''));
       renderSetup();
     } catch (e) {
@@ -487,7 +533,7 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
   }
 
   async function splitWall() {
-    const text = $('#wallInput').value.trim();
+    const text = $('#problemInput').value.trim();
     const file = $('#pdfInput').files[0];
     const status = $('#splitStatus');
     if (!text && !file) { status.textContent = 'Paste problems or choose a PDF first.'; return; }
@@ -513,18 +559,141 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
       state.set = { title, problems, index: 0 };
       store.set('mc.set', state.set);
       status.textContent = 'Found ' + problems.length + ' problem' + (problems.length === 1 ? '' : 's') + '.';
-      $('#importBox').open = false;
       gotoProblem(0);
+      if (!isMock()) setTimeout(() => makeKeys(problemList(), false), 2500); // build the answer key in the background
     } catch (e) {
       status.textContent = 'Failed: ' + e.message;
     }
     btn.disabled = false;
   }
 
+  // ---------- answer key ----------
+  const keyId = (t) => String(hash(String(t).trim()));
+  let keyBusy = false;
+
+  function problemList() {
+    if (state.set.problems.length) return state.set.problems.map((t, i) => ({ n: i + 1, text: t }));
+    return state.problem ? [{ n: 1, text: state.problem }] : [];
+  }
+
+  async function makeKey(text) {
+    if (isMock()) return { answer: 'Test mode: add your Gemini key in Settings to make a real answer key.', steps: [] };
+    const out = await gemini({
+      model: cfg.model,
+      system: SYS_BASE,
+      prompt: `Problem:\n${text}\n\nSolve it carefully, then verify the answer by substituting back or differentiating where possible. Return JSON:\n{"answer":"the final answer for EVERY part of the problem, one line per part, math in LaTeX inside $...$ (if the problem has a table, give the completed table values)","steps":["short key steps of the solution, math in LaTeX inside $...$"]}\nIf the problem as written is unclear or has no single answer, say so in "answer". Write every LaTeX backslash in the JSON as a double backslash.`,
+    });
+    const ans = Array.isArray(out.answer) ? out.answer.join('\n') : String(out.answer || '');
+    return { answer: ans, steps: Array.isArray(out.steps) ? out.steps.map(String) : [] };
+  }
+
+  async function makeKeys(list, force) {
+    if (keyBusy) return;
+    keyBusy = true;
+    const status = $('#keyStatus');
+    const todo = list.filter((p) => force || !state.keys[keyId(p.text)]);
+    let done = 0;
+    let failed = 0;
+    for (const p of todo) {
+      status.textContent = 'Making answer key... ' + done + ' / ' + todo.length;
+      try {
+        state.keys[keyId(p.text)] = await makeKey(p.text);
+        store.set('mc.keys', state.keys);
+      } catch (e) {
+        failed++;
+        status.textContent = 'Problem ' + p.n + ' failed: ' + e.message;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      done++;
+      renderKey();
+    }
+    status.textContent = todo.length ? 'Done: ' + (todo.length - failed) + ' of ' + todo.length + ' made.' + (failed ? ' ' + failed + ' failed; click Make again to retry.' : '') : 'Everything already has a key.';
+    keyBusy = false;
+  }
+
+  function renderKey() {
+    const ul = $('#keyList');
+    ul.textContent = '';
+    const list = problemList();
+    if (!list.length) {
+      const li = document.createElement('li');
+      li.textContent = 'Set a problem or import a set first.';
+      ul.append(li);
+      return;
+    }
+    list.forEach((p) => {
+      const id = keyId(p.text);
+      const k = state.keys[id];
+      const li = document.createElement('li');
+      const head = document.createElement('div');
+      head.className = 'key-head';
+      const label = document.createElement('strong');
+      label.textContent = 'Problem ' + p.n;
+      const prev = document.createElement('span');
+      prev.className = 'preview';
+      prev.textContent = p.text.replace(/\s+/g, ' ').slice(0, 90);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      if (!k) {
+        btn.textContent = 'Make';
+        btn.addEventListener('click', () => makeKeys([p], true));
+      } else {
+        btn.textContent = state.keyOpen[id] ? 'Hide' : 'Show';
+        btn.addEventListener('click', () => { state.keyOpen[id] = !state.keyOpen[id]; renderKey(); });
+      }
+      head.append(label, prev, btn);
+      li.append(head);
+      if (k && state.keyOpen[id]) {
+        const box = document.createElement('div');
+        box.className = 'key-answer';
+        const ans = document.createElement('div');
+        setTextWithMath(ans, k.answer);
+        box.append(ans);
+        if (k.steps && k.steps.length) {
+          const ol = document.createElement('ol');
+          ol.className = 'steps';
+          k.steps.forEach((st) => { const s2 = document.createElement('li'); setTextWithMath(s2, st); ol.append(s2); });
+          box.append(ol);
+        }
+        li.append(box);
+      }
+      ul.append(li);
+    });
+  }
+
+  async function oneProblem() {
+    const text = $('#problemInput').value.trim();
+    const file = $('#pdfInput').files[0];
+    if (!text && file) {
+      const status = $('#splitStatus');
+      if (isMock()) { status.textContent = 'PDF reading needs your Gemini key (test mode cannot read PDFs).'; return; }
+      status.textContent = 'Reading the PDF as one problem...';
+      try {
+        const out = await gemini({
+          model: cfg.model,
+          system: SYS_BASE,
+          json: false,
+          prompt: [
+            { text: 'Transcribe this document as ONE single problem, exactly as written, keeping every part and any table. Drop page headers, footers and interface junk. Write math in LaTeX inside $...$. Do not solve anything. Reply with only the problem text.' },
+            { inlineData: { mimeType: 'application/pdf', data: await fileToBase64(file) } },
+          ],
+        });
+        $('#problemInput').value = out.trim();
+        status.textContent = '';
+      } catch (e) {
+        status.textContent = 'Failed: ' + e.message;
+        return;
+      }
+    }
+    clearSet();
+    setProblem($('#problemInput').value);
+  }
+
   // ---------- tabs, settings, wiring ----------
   function selectTab(name) {
     document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
-    ['check', 'chat', 'more'].forEach((n) => { $('#pane-' + n).hidden = n !== name; });
+    ['check', 'chat', 'more', 'key'].forEach((n) => { $('#pane-' + n).hidden = n !== name; });
+    if (name === 'key') renderKey();
   }
 
   function updateBanner() {
@@ -543,8 +712,8 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
 
   function wire() {
     document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
-    $('#setProblem').addEventListener('click', () => { clearSet(); setProblem($('#problemInput').value); });
-    $('#problemInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { clearSet(); setProblem($('#problemInput').value); } });
+    $('#setProblem').addEventListener('click', oneProblem);
+    $('#problemInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) oneProblem(); });
     $('#chatForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const t = $('#chatInput').value.trim();
@@ -555,6 +724,8 @@ Rules: firstSteps is non-empty ONLY for word/modeling problems where the student
     $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#chatForm').requestSubmit(); } });
     $('#makeMore').addEventListener('click', makeMore);
     $('#splitBtn').addEventListener('click', splitWall);
+    $('#keyThis').addEventListener('click', () => makeKeys(state.problem ? [{ n: Math.max(state.set.index, 0) + 1, text: state.problem }] : [], true));
+    $('#keyAll').addEventListener('click', () => makeKeys(problemList(), false));
     $('#prevP').addEventListener('click', () => gotoProblem(state.set.index - 1));
     $('#nextP').addEventListener('click', () => gotoProblem(state.set.index + 1));
 

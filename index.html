@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Math Check</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <header>
@@ -26,21 +26,16 @@
     <button id="nextP" type="button" aria-label="Next problem">Next &rarr;</button>
   </div>
   <label for="problemInput">Problem</label>
-  <textarea id="problemInput" rows="2" placeholder="Paste or type a problem. Use $...$ around math, e.g. Solve $y' = 2y$, $y(0)=1$."></textarea>
+  <textarea id="problemInput" rows="3" placeholder="Paste one problem, or a whole wall of problems (a homework set, worksheet or exam), or choose a PDF below. Use $...$ around math, e.g. Solve $y' = 2y$, $y(0)=1$."></textarea>
   <div class="row">
-    <button id="setProblem" type="button" class="primary">Set problem</button>
-    <span id="prepStatus" class="muted"></span>
+    <label class="file-btn" for="pdfInput">PDF</label>
+    <input id="pdfInput" type="file" accept="application/pdf">
+    <button id="splitBtn" type="button" class="primary">Break into problems</button>
+    <button id="setProblem" type="button">One problem</button>
+    <span id="splitStatus" class="muted"></span>
   </div>
+  <div class="row"><span id="prepStatus" class="muted"></span></div>
   <div id="problemView" class="problem-view"></div>
-  <details id="importBox" class="import-box">
-    <summary>Paste a wall of problems or upload a PDF</summary>
-    <textarea id="wallInput" rows="6" placeholder="Paste a whole homework set, worksheet or exam here (copy a WebAssign page, a PDF's text, anything). The AI finds every separate problem and counts them."></textarea>
-    <div class="row">
-      <input id="pdfInput" type="file" accept="application/pdf">
-      <button id="splitBtn" type="button" class="primary">Split into problems</button>
-      <span id="splitStatus" class="muted"></span>
-    </div>
-  </details>
 </section>
 
 <main>
@@ -51,6 +46,7 @@
       <button type="button" role="tab" data-tab="check" aria-selected="true">Checks</button>
       <button type="button" role="tab" data-tab="chat" aria-selected="false">Chat</button>
       <button type="button" role="tab" data-tab="more" aria-selected="false">More questions</button>
+      <button type="button" role="tab" data-tab="key" aria-selected="false">Answer key</button>
     </nav>
 
     <div class="pane" id="pane-check">
@@ -74,6 +70,16 @@
         <textarea id="chatInput" rows="2" placeholder="Ask about the step you're stuck on..."></textarea>
         <button type="submit" class="primary">Send</button>
       </form>
+    </div>
+
+    <div class="pane" id="pane-key" hidden>
+      <p class="muted">Made by the AI, so double-check it. Answers stay hidden until you click Show.</p>
+      <div class="row">
+        <button id="keyThis" type="button" class="primary">Make key for this problem</button>
+        <button id="keyAll" type="button">Make key for all problems</button>
+      </div>
+      <p id="keyStatus" class="muted"></p>
+      <ul id="keyList" class="more-list"></ul>
     </div>
 
     <div class="pane" id="pane-more" hidden>
@@ -114,7 +120,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.1/math.min.js"></script>
 <script src="https://www.desmos.com/api/v1.11/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
-<script src="mathcheck.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="mathcheck.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

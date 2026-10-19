@@ -131,3 +131,12 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .import-box { margin-top: 10px; }
 .import-box summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .import-box textarea { margin-top: 8px; }
+
+.key-answer { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 6px; white-space: pre-wrap; }
+.key-answer .steps { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.key-head { display: flex; align-items: center; gap: 8px; }
+.key-head strong { flex: none; }
+.key-head .preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13px; }
+
+.file-btn { margin: 0; font-weight: 400; }
+#pdfInput { max-width: 220px; font-size: 13px; }
